@@ -206,7 +206,7 @@ const CFG_KEY='qlcl_cfg', DATA_KEY='qlcl_web_data';
 let CFG=loadCfg();
 let USER=null;
 const YEARS=[2022,2023,2024,2025,2026];
-const APP_VERSION='2026-07-27 · b11';  // đổi mỗi lần cập nhật để dễ kiểm tra
+const APP_VERSION='2026-07-27 · b12';  // đổi mỗi lần cập nhật để dễ kiểm tra
 const CURRENT_YEAR=2026; // năm đang đánh giá theo đợt; các năm trước hiển thị số cả năm
 let curYear=2026, curNav='tq', curDot='d1';
 const DOTS=[['d1','Đợt 1'],['d2','Đợt 2'],['d3','Đợt 3'],['d4','Đợt 4']];
@@ -223,7 +223,11 @@ function fmtMC(t){return esc(t)
   .replace(/(?<!\d)\s+([-+])\s+/g,'\n$1 ')
   .replace(/^\s+/,'').trim();}
 const scoreKey=y=>'s'+y;
-function loadCfg(){try{return JSON.parse(localStorage.getItem(CFG_KEY))||{}}catch(e){return{}}}
+function loadCfg(){
+  var D_URL='https://script.google.com/macros/s/AKfycby43F-uVT4VR8fZjSN2dHVT7aJKRg-r26D8od7NiUSEY3wQuerm_e1e2id_GAwSiNNbng/exec';
+  var D_TOK='QLCL-83TC';
+  let c={};try{c=JSON.parse(localStorage.getItem(CFG_KEY))||{}}catch(e){}
+  if(!c.appsUrl)c.appsUrl=D_URL; if(!c.token)c.token=D_TOK; return c;}
 function saveCfg(){try{localStorage.setItem(CFG_KEY,JSON.stringify(CFG))}catch(e){}}
 function nowStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`;}
 function nowISO(){return new Date().toISOString();}
