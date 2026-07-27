@@ -176,7 +176,7 @@ tbody td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
   <aside class="side" id="side">
     <div class="head"><div class="t">Đánh giá 83 tiêu chí CLBV</div><div class="s">QĐ 6858/QĐ-BYT · Kỳ <span id="sideYear"></span></div></div>
     <nav id="nav"></nav>
-    <div class="foot">Bệnh viện · Tổ QLCL<br><span id="footUser"></span></div>
+    <div class="foot">Bệnh viện · Tổ QLCL<br><span id="footUser"></span><br><span style="opacity:.7">Phiên bản: <b id="appVer"></b></span></div>
   </aside>
   <main class="content">
     <div class="topbar">
@@ -206,6 +206,7 @@ const CFG_KEY='qlcl_cfg', DATA_KEY='qlcl_web_data';
 let CFG=loadCfg();
 let USER=null;
 const YEARS=[2022,2023,2024,2025,2026];
+const APP_VERSION='2026-07-27 · b11';  // đổi mỗi lần cập nhật để dễ kiểm tra
 const CURRENT_YEAR=2026; // năm đang đánh giá theo đợt; các năm trước hiển thị số cả năm
 let curYear=2026, curNav='tq', curDot='d1';
 const DOTS=[['d1','Đợt 1'],['d2','Đợt 2'],['d3','Đợt 3'],['d4','Đợt 4']];
@@ -215,6 +216,12 @@ function periodLabel(){const d=DOTS.find(x=>x[0]===curDot);return curYear===CURR
 function yearScore(c,y){return y===CURRENT_YEAR?critScore(c,PS()):critScore(c,''+y);}
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* Định dạng hướng dẫn minh chứng: mỗi ý (- , + , tiêu đề) xuống dòng riêng */
+function fmtMC(t){return esc(t)
+  .replace(/\s*(Phương pháp kiểm tra[,]?\s*đánh giá\s*:)/g,'\n$1')
+  .replace(/\s*(Bằng chứng[,]?\s*kết quả\s*:)/g,'\n$1')
+  .replace(/(?<!\d)\s+([-+])\s+/g,'\n$1 ')
+  .replace(/^\s+/,'').trim();}
 const scoreKey=y=>'s'+y;
 function loadCfg(){try{return JSON.parse(localStorage.getItem(CFG_KEY))||{}}catch(e){return{}}}
 function saveCfg(){try{localStorage.setItem(CFG_KEY,JSON.stringify(CFG))}catch(e){}}
@@ -265,21 +272,27 @@ const isDouble=c=>!!c.double; // theo QĐ 6858: toàn bộ chương C3 & C5 ×2
 function weighted(c,y){const v=c[scoreKey(y)];return v==null?null:(isDouble(c)?v*2:v);}
 
 /* Auto-calc criterion level from sub-items evidence */
+/* Tự tính mức đạt theo QĐ 6858 — cập nhật ngay theo dữ liệu hiện có */
 function autoLevel(ma,y){
   const subs=SUBS.filter(s=>s.ma===ma);
   if(!subs.length)return {level:null,ok:false,reason:'no-sub'};
   const byL={1:[],2:[],3:[],4:[],5:[]};
   subs.forEach(s=>{const L=mucNum(s.muc);if(byL[L])byL[L].push(s);});
-  let level=0, missing=false;
+  const anyEval=subs.some(s=>subKQ(s,y)!=null);
+  if(!anyEval)return {level:null,ok:false,reason:'none'};
+  // Quy tắc 1.3.2: có bất kỳ tiểu mục Mức 1 nào "có mắc lỗi" (Không đạt) → xếp Mức 1 ngay
+  if(byL[1].some(s=>subKQ(s,y)==='Không đạt'))return {level:1,ok:true,complete:false};
+  // Mức đạt = mức cao nhất mà TẤT CẢ tiểu mục từ (mức đó và) các mức dưới đều "Đạt"
+  let level=0, complete=true;
   for(let L=1;L<=5;L++){
     const items=byL[L];
-    if(!items.length){missing=true;continue;}
-    const evaluated=items.filter(s=>subKQ(s,y)!=null);
-    if(evaluated.length<items.length){return {level:level||null,ok:false,reason:'incomplete',at:L};}
+    if(!items.length){ if(L===1)continue; else break; }
+    const allEval=items.every(s=>subKQ(s,y)!=null);
     const allDat=items.every(s=>subKQ(s,y)==='Đạt');
-    if(allDat)level=L; else break;
+    if(allEval&&allDat){ level=L; }
+    else { if(!allEval)complete=false; break; }
   }
-  return {level:level||1,ok:true,missing};
+  return {level:level||1,ok:true,complete};
 }
 
 /* ===== Aggregations (chỉ tính tiêu chí ÁP DỤNG) ===== */
@@ -431,12 +444,12 @@ function buildTree(){
         const tkey='T:'+c.ma,tOpen=expanded.has(tkey)||subMatch;const meta=critMeta(c,PS());
         html+=`<div class="node crit ${tOpen?'open':''}"><div class="nhead lvl-crit" ${subs.length?`data-key="${tkey}"`:'data-nosub="1"'}><span class="chev">${subs.length?'▸':'·'}</span><span class="cma">${esc(c.ma)}${isDouble(c)&&isApplied(c)?' <span class="tag dbl">×2</span>':''}${statusTag(c)}</span><span class="ctext">${esc(c.ten)}${meta?`<div class="evstamp">ĐG: ${esc(meta.u||'—')} · ${esc(meta.t||'')}${meta.auto?' · tự tính':''}</div>`:''}</span><span class="nmeta yrs">${YEARS.map(y=>sc(yearScore(c,y),y===curYear)).join('')}${L?`<span class="score ${scClass(critScore(c,PS()))}" style="min-width:34px" title="Kết quả (đã chốt)">${critScore(c,PS())??'–'}</span>`:`<select class="inl scoreSel" data-ma="${esc(c.ma)}" title="Chấm điểm ${curYear}">${['','1','2','3','4','5'].map(v=>`<option value="${v}" ${String(critScore(c,PS())??'')===v?'selected':''}>${v===''?'–':'M'+v}</option>`).join('')}</select>`}<button class="inl mini" data-detail="${esc(c.ma)}" title="Chi tiết & người phụ trách">⤢</button></span></div>`;
         if(subs.length){const al=autoLevel(c.ma,PS());const ap=isApplied(c);
-          html+=`<div class="nbody subwrap"><div class="autobox">${ap?`<b>Tự tính:</b> ${al.ok?`Mức ${al.level}`:'<span class="muted">chưa đủ đánh giá</span>'} ${al.ok&&!L?`<button class="inl btn-p" data-apply="${esc(c.ma)}" data-lvl="${al.level}">Áp dụng vào điểm ${curYear}</button>`:''}`:'<span class="muted">Tiêu chí không áp dụng — không tính vào điểm chung.</span>'}</div>`;
+          html+=`<div class="nbody subwrap"><div class="autobox">${ap?`<b>Tự tính:</b> ${al.ok?`<span class="score ${scClass(al.level)}" style="min-width:30px">Mức ${al.level}</span>${al.complete===false?' <span class="muted">(tạm tính — chưa đánh giá đủ)</span>':' <span style="color:var(--good)">✓ đã đủ</span>'}`:'<span class="muted">chưa đánh giá tiểu mục nào</span>'}`:'<span class="muted">Tiêu chí không áp dụng — không tính vào điểm chung.</span>'}</div>`;
           const bym={};subs.forEach(s=>{(bym[s.muc]=bym[s.muc]||[]).push(s);});
           MUCS.forEach(mk=>{if(!bym[mk])return;const isM1=mk==='Mức 1';const ok=bym[mk].filter(s=>subKQ(s,PS())==='Đạt').length;
             html+=`<div class="muchead">${mk} · <span class="tag">${ok}/${bym[mk].length} ${isM1?'không mắc lỗi':'có minh chứng'}</span></div>`;
             bym[mk].forEach(s=>{const cur=subKQ(s,PS())||'';const m=subMeta(s,PS());const lk=subLink(s,PS());const nt=subNote(s,PS());
-              html+=`<div class="subrow"><div class="sctext"><b>${esc(s.tm)}.</b> ${esc(s.noidung)}${s.minhchung?`<details class="mc-guide"><summary>Cách kiểm tra / minh chứng</summary><div class="submeta">${esc(s.minhchung)}</div></details>`:''}${(s.nguyennhan||s.giaiphap||s.han)?`<div class="submeta"><span class="muted">Nguyên nhân:</span> ${esc(s.nguyennhan)||'—'} · <span class="muted">Giải pháp:</span> ${esc(s.giaiphap)||'—'}${s.han?` · <span class="muted">Hạn:</span> ${esc(s.han)}`:''}</div>`:''}${lk?`<div class="submeta">🔗 <a href="${esc(lk)}" target="_blank" rel="noopener">Minh chứng</a></div>`:''}${nt?`<div class="submeta"><span class="pill-bad">Lý do:</span> ${esc(nt)}</div>`:''}${m?`<div class="evstamp">✔ ${esc(m.u||'')} · ${esc(m.t||'')}</div>`:''}</div>
+              html+=`<div class="subrow"><div class="sctext"><b>${esc(s.tm)}.</b> ${esc(s.noidung)}${s.minhchung?`<details class="mc-guide"><summary>Cách kiểm tra / minh chứng</summary><div class="submeta">${fmtMC(s.minhchung)}</div></details>`:''}${(s.nguyennhan||s.giaiphap||s.han)?`<div class="submeta"><span class="muted">Nguyên nhân:</span> ${esc(s.nguyennhan)||'—'} · <span class="muted">Giải pháp:</span> ${esc(s.giaiphap)||'—'}${s.han?` · <span class="muted">Hạn:</span> ${esc(s.han)}`:''}</div>`:''}${lk?`<div class="submeta">🔗 <a href="${esc(lk)}" target="_blank" rel="noopener">Minh chứng</a></div>`:''}${nt?`<div class="submeta"><span class="pill-bad">Lý do:</span> ${esc(nt)}</div>`:''}${m?`<div class="evstamp">✔ ${esc(m.u||'')} · ${esc(m.t||'')}</div>`:''}</div>
                 <div class="evctrl">${L?`<div style="text-align:right">${cur==='Đạt'?`<span class="pill-good">✔ ${isM1?'Không mắc lỗi':'Có minh chứng'}</span>`:cur==='Không đạt'?`<span class="pill-bad">✖ ${isM1?'Có mắc lỗi':'Không đạt'}</span>`:'<span class="muted">– chưa ĐG</span>'}</div>`:`<div class="mc-toggle" data-id="${esc(s.id)}"><button class="mcY ${cur==='Đạt'?'yes':''}" data-v="Đạt">${isM1?'Không mắc lỗi':'Có minh chứng'}</button><button class="mcN ${cur==='Không đạt'?'no':''}" data-v="Không đạt">${isM1?'Có mắc lỗi':'Không'}</button></div>
                 ${cur==='Đạt'?`<input class="inl mc-link" data-id="${esc(s.id)}" placeholder="🔗 Dán link minh chứng (Drive)" value="${esc(lk)}">`:''}
                 ${cur==='Không đạt'?`<input class="inl mc-note" data-id="${esc(s.id)}" placeholder="✍ Vì sao không đạt?" value="${esc(nt)}">`:''}`}</div></div>`;});
@@ -471,16 +484,17 @@ function logEval(type,key,value){LOG.unshift({type,key,value,nam:periodLabel(),u
 
 /* ===== PAGE: Cải tiến ===== */
 let ciFilter='open';
+/* Gợi ý dựa trên MỨC ĐẠT THỰC TẾ hiện tại: chỉ cần bổ sung ít minh chứng ở mức kế tiếp là lên hạng */
 function quickWins(ps){
-  const byMa={};SUBS.forEach(s=>{(byMa[s.ma]=byMa[s.ma]||[]).push(s);});
   const res=[];
-  Object.keys(byMa).forEach(ma=>{const subs=byMa[ma];const byL={1:[],2:[],3:[],4:[],5:[]};
-    subs.forEach(s=>{const L=mucNum(s.muc);if(byL[L])byL[L].push(s);});
-    let cur=0;for(let L=1;L<=5;L++){const it=byL[L];if(!it.length)continue;if(it.every(s=>subKQ(s,ps)==='Đạt'))cur=L;else break;}
-    let tgt=null;for(let L=cur+1;L<=5;L++){if(byL[L].length){tgt=L;break;}}
-    if(!tgt)return;
-    const missing=byL[tgt].filter(s=>subKQ(s,ps)!=='Đạt');
-    if(missing.length>=1&&missing.length<=2){const c=CRIT.find(x=>x.ma===ma);res.push({ma,ten:c?c.ten:'',cur,tgt,missing});}
+  CRIT.forEach(c=>{
+    if(!isApplied(c))return;
+    const cur=critScore(c,ps); if(cur==null||cur>=5)return;   // bỏ tiêu chí chưa chấm hoặc đã mức 5
+    const tgt=cur+1;
+    const subsT=SUBS.filter(s=>s.ma===c.ma && mucNum(s.muc)===tgt);
+    if(!subsT.length)return;
+    const missing=subsT.filter(s=>subKQ(s,ps)!=='Đạt');
+    if(missing.length>=1 && missing.length<=3){res.push({ma:c.ma,ten:c.ten,cur,tgt,missing});}
   });
   return res.sort((a,b)=>a.missing.length-b.missing.length);
 }
@@ -710,7 +724,7 @@ function openCrit(ma){const c=CRIT.find(x=>x.ma===ma);if(!c)return;const subs=SU
     <span id="assignMsg" class="muted" style="margin-left:10px;font-size:13px"></span>`;
   if(subs.length){h+=`<div class="fl" style="margin:20px 0 8px">Tiểu mục (${subs.length}) — có minh chứng?</div>`;
     const bym={};subs.forEach(s=>{(bym[s.muc]=bym[s.muc]||[]).push(s);});
-    MUCS.forEach(mk=>{if(!bym[mk])return;const isM1=mk==='Mức 1';h+=`<div class="muchead">${mk}${isM1?' · <span class="muted" style="text-transform:none;font-weight:400">(âm tính: mắc lỗi = không đạt)</span>':''}</div>`;bym[mk].forEach(s=>{const cur=subKQ(s,PS())||'';const lk=subLink(s,PS());h+=`<div class="sub-card"><div style="font-weight:600">${esc(s.tm)}. ${esc(s.noidung)}</div>${s.minhchung?`<div class="submeta" style="margin-top:6px"><span class="muted">Hướng dẫn kiểm tra đánh giá:</span> ${esc(s.minhchung)}</div>`:''}<div class="mc-toggle" style="margin-top:8px;max-width:300px" data-id="${esc(s.id)}"><button class="${cur==='Đạt'?'yes':''}" data-v="Đạt">${isM1?'Không mắc lỗi':'Có minh chứng'}</button><button class="${cur==='Không đạt'?'no':''}" data-v="Không đạt">${isM1?'Có mắc lỗi':'Không'}</button></div>${cur==='Đạt'?`<div class="field" style="margin-top:8px;margin-bottom:0"><div class="fl">🔗 Link minh chứng (Drive)</div><input class="mc-link" data-id="${esc(s.id)}" placeholder="Dán link Google Drive…" value="${esc(lk)}">${lk?` <a href="${esc(lk)}" target="_blank" rel="noopener" style="font-size:12px">Mở</a>`:''}</div>`:''}${cur==='Không đạt'?`<div class="field" style="margin-top:8px;margin-bottom:0"><div class="fl">✍ Vì sao không đạt?</div><input class="mc-note" data-id="${esc(s.id)}" placeholder="Ghi lý do chưa đạt…" value="${esc(subNote(s,PS()))}"></div>`:''}</div>`;});});
+    MUCS.forEach(mk=>{if(!bym[mk])return;const isM1=mk==='Mức 1';h+=`<div class="muchead">${mk}${isM1?' · <span class="muted" style="text-transform:none;font-weight:400">(âm tính: mắc lỗi = không đạt)</span>':''}</div>`;bym[mk].forEach(s=>{const cur=subKQ(s,PS())||'';const lk=subLink(s,PS());h+=`<div class="sub-card"><div style="font-weight:600">${esc(s.tm)}. ${esc(s.noidung)}</div>${s.minhchung?`<div class="submeta" style="margin-top:6px;white-space:pre-line"><span class="muted">Hướng dẫn kiểm tra đánh giá:</span>\n${fmtMC(s.minhchung)}</div>`:''}<div class="mc-toggle" style="margin-top:8px;max-width:300px" data-id="${esc(s.id)}"><button class="${cur==='Đạt'?'yes':''}" data-v="Đạt">${isM1?'Không mắc lỗi':'Có minh chứng'}</button><button class="${cur==='Không đạt'?'no':''}" data-v="Không đạt">${isM1?'Có mắc lỗi':'Không'}</button></div>${cur==='Đạt'?`<div class="field" style="margin-top:8px;margin-bottom:0"><div class="fl">🔗 Link minh chứng (Drive)</div><input class="mc-link" data-id="${esc(s.id)}" placeholder="Dán link Google Drive…" value="${esc(lk)}">${lk?` <a href="${esc(lk)}" target="_blank" rel="noopener" style="font-size:12px">Mở</a>`:''}</div>`:''}${cur==='Không đạt'?`<div class="field" style="margin-top:8px;margin-bottom:0"><div class="fl">✍ Vì sao không đạt?</div><input class="mc-note" data-id="${esc(s.id)}" placeholder="Ghi lý do chưa đạt…" value="${esc(subNote(s,PS()))}"></div>`:''}</div>`;});});
   }else h+=`<div class="notice" style="margin-top:16px">Tiêu chí này chưa có tiểu mục chi tiết. Có thể chấm điểm trực tiếp ở trên.</div>`;
   h+=`</div>`;
   $('#drawer').innerHTML=h;
@@ -776,7 +790,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 loadLocal();
 migrateOld();
 fillLoginUsers();
-$('#loginMode').textContent=CFG.appsUrl?'Đã kết nối Google Sheet':'Chế độ thử · PIN mặc định 1234';
+$('#loginMode').innerHTML=(CFG.appsUrl?'Đã kết nối Google Sheet':'Chế độ thử · PIN mặc định 1234')+' · Phiên bản '+APP_VERSION;
+const _av=document.getElementById('appVer'); if(_av)_av.textContent=APP_VERSION;
 </script>
 </body>
 </html>
